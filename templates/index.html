@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Virtual Character - VRM</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.154.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.154.0/examples/jsm/",
+                "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
+            }
+        }
+    </script>
+
+    <style>
+        :root {
+            --primary: #0078d4;
+            --glass: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #1e293b, #0f172a);
+            font-family: 'Inter', sans-serif;
+            color: white;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 2rem;
+            box-sizing: border-box;
+        }
+
+        #top-info {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            padding: 1rem 1.5rem;
+            border-radius: 1rem;
+            align-self: flex-start;
+            pointer-events: auto;
+        }
+
+        #controls {
+            align-self: center;
+            width: 100%;
+            max-width: 600px;
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            padding: 1.5rem;
+            border-radius: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            pointer-events: auto;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        input {
+            flex-grow: 1;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--glass-border);
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
+            color: white;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            border: none;
+            background: var(--primary);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        #micBtn {
+            background: #e91e63;
+        }
+
+        #micBtn.recording {
+            animation: pulse 1.5s infinite;
+            background: #ff5252;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        #status-text {
+            font-size: 0.875rem;
+            opacity: 0.8;
+            margin-bottom: 0.5rem;
+        }
+
+        #chat-bubble {
+            position: absolute;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            color: #1e293b;
+            padding: 1rem 1.5rem;
+            border-radius: 1rem 1rem 1rem 0;
+            max-width: 80%;
+            font-size: 1rem;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        #chat-bubble.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(-10px);
+        }
+
+        /* Responsive Mobile Layout */
+        @media (max-width: 600px) {
+            #ui-layer {
+                padding: 1rem;
+            }
+
+            #top-info {
+                padding: 0.75rem 1rem;
+            }
+
+            #top-info h1 {
+                font-size: 1rem !important;
+            }
+
+            #controls {
+                padding: 1rem;
+                flex-wrap: wrap;
+                justify-content: center;
+                border-radius: 1rem;
+            }
+
+            input {
+                width: 100%;
+                font-size: 0.93rem;
+            }
+
+            button {
+                padding: 0.6rem 1rem;
+                font-size: 0.9rem;
+                flex: 1;
+            }
+
+            #chat-bubble {
+                bottom: 180px;
+                /* Adjust for stacked controls */
+                font-size: 0.93rem;
+                padding: 0.75rem 1rem;
+                max-width: 90%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <div id="top-info">
+            <h1 style="margin:0; font-size: 1.25rem;">Virtual Character AI</h1>
+            <div id="status-text">Status: Menginisialisasi 3D...</div>
+        </div>
+
+        <div id="chat-bubble">Halo! Aku Jisan. Ada yang bisa aku bantu?</div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+            <div id="controls">
+                <input type="text" id="userInput" placeholder="Tanya sesuatu...">
+                <button onclick="sendMessage()">Kirim</button>
+                <button id="micBtn" onclick="toggleMic()">🎤 Mic</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { VRM, VRMUtils, VRMLoaderPlugin } from '@pixiv/three-vrm';
+
+        // --- 3D SETUP ---
+        let currentVrm = null;
+        let renderer, scene, camera, clock;
+        let controls;
+        let mouthOpenParam = 0;
+
+        // --- ANIMATION STATE ---
+        let blinkTimer = 0;
+        let blinkLimit = 2 + Math.random() * 5;
+        let expressionTarget = {
+            happy: 0,
+            angry: 0,
+            sad: 0,
+            relaxed: 0,
+            surprised: 0
+        };
+        let animState = {
+            isNodding: false,
+            nodTime: 0,
+            isShaking: false,
+            shakeTime: 0,
+            isHips: false,
+            // New Idle State
+            lookAtTarget: new THREE.Vector3(0, 0, 5), // Target point for eyes
+            lookAtTime: 0,
+            nextLookAtChange: 2,
+            isLookingAtCamera: true,
+            breathingPhase: 0,
+            // Interactive State
+            mousePos: new THREE.Vector2(),
+            isHovering: false,
+            coyTilt: 0 // Head tilt for "centil" look
+        };
+
+        const vrmBones = {}; // Cache bones here
+
+        const animations = {
+            nod: () => {
+                console.log("Animation Triggered: Nod");
+                animState.isNodding = true;
+                animState.nodTime = 0;
+            },
+            shake: () => {
+                console.log("Animation Triggered: Shake Head");
+                animState.isShaking = true;
+                animState.shakeTime = 0;
+            },
+            wave: () => {
+                console.log("Animation Triggered: Wave", !animState.isWaving);
+                animState.isWaving = !animState.isWaving;
+                animState.waveTime = 0;
+            },
+            hips: () => {
+                console.log("Animation Triggered: Hips", !animState.isHips);
+                animState.isHips = !animState.isHips;
+            }
+        };
+
+        init3D();
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            // Three.js >= 0.152 uses outputColorSpace instead of outputEncoding
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            container.appendChild(renderer.domElement);
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20);
+            camera.position.set(0, 1.4, 1.5); // Adjusted for Face & Half Body Shot
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.screenSpacePanning = true;
+            controls.target.set(0, 1.3, 0); // Focus on Chest/Neck area
+            controls.update();
+
+
+
+            const light = new THREE.DirectionalLight(0xffffff);
+            light.position.set(1, 1, 1).normalize();
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+            clock = new THREE.Clock();
+
+            const loader = new GLTFLoader();
+            loader.crossOrigin = 'anonymous';
+
+            // Register VRMLoaderPlugin
+            loader.register((parser) => {
+                return new VRMLoaderPlugin(parser);
+            });
+
+            const statusText = document.getElementById('status-text');
+            statusText.innerText = "Status: Memuat Karakter...";
+
+            loader.load(
+                '/static/models/haruna.vrm',
+                (gltf) => {
+                    const vrm = gltf.userData.vrm;
+                    VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+                    scene.add(vrm.scene);
+                    currentVrm = vrm;
+                    vrm.scene.position.set(0, 0, 0); // Ensure centered at origin
+                    vrm.scene.rotation.y = 0; // Face the camera
+
+                    // Initial LookAt Target
+                    if (vrm.lookAt) {
+                        vrm.lookAt.target = new THREE.Object3D(); // Use a dummy object
+                        scene.add(vrm.lookAt.target);
+                    }
+
+                    statusText.innerText = "Status: Online";
+                    console.log("VRM Loaded", vrm);
+
+                    // Cache bones (Using normalized nodes for standard behavior in v2.x)
+                    const boneNames = ['head', 'neck', 'rightUpperArm', 'rightLowerArm', 'rightHand', 'leftUpperArm', 'leftLowerArm'];
+                    boneNames.forEach(name => {
+                        vrmBones[name] = vrm.humanoid.getNormalizedBoneNode(name);
+                        if (vrmBones[name]) {
+                            const worldPos = new THREE.Vector3();
+                            vrmBones[name].getWorldPosition(worldPos);
+                            console.log(`Bone ${name}: Found at world pos`, worldPos);
+                        } else {
+                            console.log(`Bone ${name}: NOT FOUND`);
+                        }
+                    });
+                },
+                (progress) => console.log('Loading VRM...', 100 * (progress.loaded / progress.total), '%'),
+                (error) => {
+                    console.error(error);
+                    statusText.innerText = "Status: Error Gagal Memuat Model";
+                }
+            );
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const deltaTime = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            if (currentVrm) {
+                // --- EXPRESSIONS & BLINKING ---
+                if (currentVrm.expressionManager) {
+                    // Update Smoothing for standard expressions
+                    currentVrm.expressionManager.setValue('happy', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('happy'), expressionTarget.happy, 0.1));
+                    currentVrm.expressionManager.setValue('angry', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('angry'), expressionTarget.angry, 0.1));
+                    currentVrm.expressionManager.setValue('sad', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('sad'), expressionTarget.sad, 0.1));
+                    currentVrm.expressionManager.setValue('surprised', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('surprised'), expressionTarget.surprised, 0.1));
+
+                    // Automatic Blinking
+                    blinkTimer += deltaTime;
+                    if (blinkTimer >= blinkLimit) {
+                        const blinkValue = 1.0 - Math.abs(Math.sin((blinkTimer - blinkLimit) * 15));
+                        currentVrm.expressionManager.setValue('blink', Math.max(0, blinkValue));
+                        if (blinkTimer > blinkLimit + (Math.PI / 15)) {
+                            blinkTimer = 0;
+                            blinkLimit = 2 + Math.random() * 5;
+                            currentVrm.expressionManager.setValue('blink', 0);
+                        }
+                    }
+
+                    // Lip sync
+                    currentVrm.expressionManager.setValue('aa', mouthOpenParam);
+                }
+
+                // --- PROCEDUREAL ANIMATIONS ---
+                const { head, neck, spine, hips, leftUpperArm, rightUpperArm, leftLowerArm, rightLowerArm, rightHand } = vrmBones;
+
+                // --- WIND SIMULATION (HAIR & CLOTHES) ---
+                // Modulate gravity direction to simulate gentle wind blowing
+                if (currentVrm.springBoneManager && currentVrm.springBoneManager.joints) {
+                    const windTime = time * 0.5; // Slow wind
+                    // Base gravity (0, -1, 0) + Wind Vector
+                    const windX = Math.sin(windTime * 2.3) * 0.05 + Math.sin(windTime * 1.1) * 0.02; // Gentle side breeze
+                    const windZ = Math.cos(windTime * 1.7) * 0.05; // Gentle front/back breeze
+
+                    const newGravity = new THREE.Vector3(windX, -1.0, windZ).normalize();
+
+                    // Apply to all joints
+                    // Note: In Three-VRM 2.0/2.1, joints is a Set of VRMSpringBoneJoint
+                    // Each joint has 'settings' property with 'gravityDir'
+                    for (const joint of currentVrm.springBoneManager.joints) {
+                        if (joint.settings) {
+                            joint.settings.gravityDir.copy(newGravity);
+                        }
+                    }
+                }
+
+                // 1. COMPLEX BREATHING (Layered Sine Waves)
+                animState.breathingPhase += deltaTime;
+                const breath = Math.sin(animState.breathingPhase * 0.8) * 0.5 + Math.sin(animState.breathingPhase * 0.3) * 0.2;
+
+                // 2. MICRO MOVEMENTS & "CENTIL" SWAY
+                const swayFrequency = 0.6; // Slower, more deliberate
+                const swayAmplitude = 0.08; // More pronounced hip sway
+
+                const swayX = Math.sin(time * swayFrequency) * swayAmplitude;
+                const swayY = Math.cos(time * (swayFrequency * 0.5)) * 0.02; // Vertical bob
+
+                if (hips) {
+                    hips.position.y = Math.sin(time * 1.2) * 0.008; // Slightly more bounce
+                    hips.rotation.z = swayX; // Pronounced hip sway
+                    hips.rotation.y = Math.sin(time * 0.4) * 0.05; // Slight twist
+                }
+
+                // "Coy" Head Tilt Logic
+                // Randomly tilt head slightly to the side occasionally
+                if (Math.random() < 0.005) {
+                    animState.coyTilt = (Math.random() - 0.5) * 0.3; // Target tilt
+                }
+                // Smoothly revert tilt or apply new one
+                if (neck) {
+                    neck.rotation.z = THREE.MathUtils.lerp(neck.rotation.z, animState.coyTilt - (swayX * 0.5), deltaTime); // Counter-sway + tilt
+                    neck.rotation.y = THREE.MathUtils.lerp(neck.rotation.y, (animState.mousePos.x * 0.5), deltaTime * 2); // Turn towards mouse horizontal
+                    neck.rotation.x = THREE.MathUtils.lerp(neck.rotation.x, -(animState.mousePos.y * 0.2) + breath * 0.05, deltaTime * 2); // Up/Down tracking
+                }
+                if (spine) {
+                    spine.rotation.z = swayX * 0.3; // Spine follows hips slightly
+                }
+
+
+                // 3. INTERACTIVE EYE TRACKING & GLANCING
+                if (animState.isHovering) {
+                    // If hovering, look directly at mouse and Smile!
+                    animState.isLookingAtCamera = true; // Use mouse pos as effective "camera" logic override
+
+                    // Raycaster logic updates mousePos to -1 to 1, we can use that to offset the lookAt target
+                    const mouseLookTarget = new THREE.Vector3(
+                        animState.mousePos.x * 2, // Scale up for world space feel
+                        1.4 + (animState.mousePos.y * 0.5), // Around face height + mouse Y
+                        2.0 // Forward distance
+                    );
+                    currentVrm.lookAt.target.position.lerp(mouseLookTarget, deltaTime * 5.0);
+
+                    // SMILE when hovering!
+                    currentVrm.expressionManager.setValue('happy', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('happy'), 1.0, deltaTime * 5));
+                    // Reset others
+                    currentVrm.expressionManager.setValue('angry', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('angry'), 0, deltaTime * 5));
+                    currentVrm.expressionManager.setValue('sad', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('sad'), 0, deltaTime * 5));
+
+                } else {
+                    // Normal behavior when NOT hovering
+                    // Slowly fade out smile if not explicitly set by speech
+                    if (expressionTarget.happy === 0) {
+                        currentVrm.expressionManager.setValue('happy', THREE.MathUtils.lerp(currentVrm.expressionManager.getValue('happy'), 0, deltaTime * 2));
+                    }
+
+                    // GLANCING LOGIC (Melirik) - Only when NOT hovering
+                    animState.lookAtTime += deltaTime;
+                    if (animState.lookAtTime > animState.nextLookAtChange) {
+                        animState.lookAtTime = 0;
+                        animState.nextLookAtChange = 2 + Math.random() * 3;
+
+                        const r = Math.random();
+                        if (r < 0.6) { // 60% look at "user" (mouse/center)
+                            animState.isLookingAtCamera = true;
+                        } else {
+                            animState.isLookingAtCamera = false;
+                            // Pick random point (glancing away)
+                            const randomLook = new THREE.Vector3(
+                                (Math.random() - 0.5) * 3,
+                                1.4 + (Math.random() - 0.5),
+                                2
+                            );
+                            animState.lookAtTarget.copy(randomLook);
+                        }
+                    }
+
+                    if (currentVrm.lookAt && currentVrm.lookAt.target) {
+                        // If "looking at camera", actually look at mouse position (which defaults to 0,0 if irrelevant)
+                        // OR if mouse is active, we treat "Camera" as "Mouse Position" for better engagement?
+                        // Let's keep it simple: "Camera" = Center/Mouse.
+
+                        let targetPos;
+                        if (animState.isLookingAtCamera) {
+                            targetPos = new THREE.Vector3(animState.mousePos.x * 1.5, 1.4 + animState.mousePos.y * 0.5, 3);
+                        } else {
+                            targetPos = animState.lookAtTarget;
+                        }
+
+                        currentVrm.lookAt.target.position.lerp(targetPos, deltaTime * 2.0);
+                    }
+                }
+
+
+                // Nodding Logic (Add on top of idle)
+                if (animState.isNodding) {
+                    animState.nodTime += deltaTime * 5;
+                    // Standard VRM/GLTF: Y-up, Z-forward, X-right.
+                    // Head Pitch (Nod): Rotate around X
+                    if (head) head.rotation.x = Math.sin(animState.nodTime) * 0.2;
+                    if (animState.nodTime > Math.PI * 2) {
+                        animState.isNodding = false;
+                        if (head) head.rotation.x = 0;
+                    }
+                }
+
+                // Shaking Logic (Add on top of idle)
+                if (animState.isShaking) {
+                    animState.shakeTime += deltaTime * 7;
+                    // Head Yaw (Shake): Rotate around Y
+                    if (head) head.rotation.y = Math.sin(animState.shakeTime) * 0.3;
+                    if (animState.shakeTime > Math.PI * 2) {
+                        animState.isShaking = false;
+                        if (head) head.rotation.y = 0;
+                    }
+                }
+
+                // Waving Logic
+                if (animState.isWaving) {
+                    animState.waveTime += deltaTime * 4;
+                    if (rightUpperArm) {
+                        // Raise Arm - Keep elbow at or below shoulder level
+                        rightUpperArm.rotation.z = THREE.MathUtils.lerp(rightUpperArm.rotation.z, Math.PI / 8, 0.1);
+                        rightUpperArm.rotation.x = THREE.MathUtils.lerp(rightUpperArm.rotation.x, 0.3, 0.1); // Forward tilt to bring hand to face
+                        rightUpperArm.rotation.y = THREE.MathUtils.lerp(rightUpperArm.rotation.y, 0.8, 0.1); // Rotate inward more
+                        // Fast Wave (Forearm) - Hand waving at face level
+                        if (rightLowerArm) {
+                            rightLowerArm.rotation.z = THREE.MathUtils.lerp(rightLowerArm.rotation.z, -3, 0.1); // Bend elbow up to point forearm toward camera
+                            rightLowerArm.rotation.y = Math.sin(animState.waveTime * 2) * 0.5 + 0.5; // Wave left-right
+                            rightUpperArm.rotation.x = THREE.MathUtils.lerp(rightUpperArm.rotation.x, 0.3, 0.1);
+                        }
+                        // Keep hand straight with forearm - minimal rotation
+                        if (rightHand) {
+                            rightHand.rotation.x = THREE.MathUtils.lerp(rightHand.rotation.x, 0.3, 0.1); // Keep straight with forearm
+                            rightHand.rotation.y = THREE.MathUtils.lerp(rightHand.rotation.y, 0, 0.1); // Keep straight
+                            rightHand.rotation.z = THREE.MathUtils.lerp(rightHand.rotation.z, 0, 0.1); // Keep straight
+                        }
+                    }
+                } else if (!animState.isHips) {
+                    // Return to Natural Downward Pose
+                    if (rightUpperArm) {
+                        rightUpperArm.rotation.z = THREE.MathUtils.lerp(rightUpperArm.rotation.z, Math.PI / 2.5, 0.1); // Down
+                        rightUpperArm.rotation.x = THREE.MathUtils.lerp(rightUpperArm.rotation.x, 0, 0.1);
+                        rightUpperArm.rotation.y = THREE.MathUtils.lerp(rightUpperArm.rotation.y, 0, 0.1);
+                    }
+                    if (rightLowerArm) {
+                        rightLowerArm.rotation.z = THREE.MathUtils.lerp(rightLowerArm.rotation.z, 0, 0.1);
+                        rightLowerArm.rotation.y = THREE.MathUtils.lerp(rightLowerArm.rotation.y, 0, 0.1); // Reset Y rotation
+                    }
+                    if (rightHand) {
+                        rightHand.rotation.z = THREE.MathUtils.lerp(rightHand.rotation.z, 0, 0.1); // Reset hand rotation
+                        rightHand.rotation.x = THREE.MathUtils.lerp(rightHand.rotation.x, 0, 0.1);
+                        rightHand.rotation.y = THREE.MathUtils.lerp(rightHand.rotation.y, 0, 0.1); // Reset Y rotation
+                    }
+                }
+
+                // Hands on Hips Logic - "Sassy" / Centil
+                if (animState.isHips && !animState.isWaving) {
+                    // Right Arm
+                    if (rightUpperArm) {
+                        // Abduct (Raise) slightly - Negative Z
+                        rightUpperArm.rotation.z = THREE.MathUtils.lerp(rightUpperArm.rotation.z, -Math.PI / 10, 0.1);
+                        // Bring Forward - Positive X/Y? Usually +X rotates forward?
+                        rightUpperArm.rotation.x = THREE.MathUtils.lerp(rightUpperArm.rotation.x, 0.3, 0.1);
+                        rightUpperArm.rotation.y = THREE.MathUtils.lerp(rightUpperArm.rotation.y, 0.5, 0.1);
+                    }
+                    if (rightLowerArm) {
+                        // Bend Elbow In - Negative Z bends in? Or Y? Usually Z?
+                        // Let's try bending Z significantly to form the V shape
+                        rightLowerArm.rotation.z = THREE.MathUtils.lerp(rightLowerArm.rotation.z, -Math.PI / 1.8, 0.1);
+                        // Supinate forearm to show palm? Y?
+                        rightLowerArm.rotation.y = THREE.MathUtils.lerp(rightLowerArm.rotation.y, 1.0, 0.1);
+                    }
+
+                    // Left Arm
+                    if (leftUpperArm) {
+                        leftUpperArm.rotation.z = THREE.MathUtils.lerp(leftUpperArm.rotation.z, Math.PI / 10, 0.1); // Positive Z raises left arm?
+                        leftUpperArm.rotation.x = THREE.MathUtils.lerp(leftUpperArm.rotation.x, 0.3, 0.1);
+                        leftUpperArm.rotation.y = THREE.MathUtils.lerp(leftUpperArm.rotation.y, -0.5, 0.1);
+                    }
+                    if (leftLowerArm) {
+                        leftLowerArm.rotation.z = THREE.MathUtils.lerp(leftLowerArm.rotation.z, Math.PI / 1.8, 0.1); // Positive Z bends left arm in?
+                        leftLowerArm.rotation.y = THREE.MathUtils.lerp(leftLowerArm.rotation.y, -1.0, 0.1);
+                    }
+                } else if (!animState.isWaving) {
+                    // Reset left arm
+                    if (leftUpperArm) {
+                        leftUpperArm.rotation.z = THREE.MathUtils.lerp(leftUpperArm.rotation.z, -Math.PI / 2.5, 0.1); // Down (negative for Left?)
+                        // Wait, if Right Down is +PI/2.5, Left Down should probably be -PI/2.5.
+                        leftUpperArm.rotation.x = THREE.MathUtils.lerp(leftUpperArm.rotation.x, 0, 0.1);
+                        leftUpperArm.rotation.y = THREE.MathUtils.lerp(leftUpperArm.rotation.y, 0, 0.1);
+                    }
+                    if (leftLowerArm) {
+                        leftLowerArm.rotation.z = THREE.MathUtils.lerp(leftLowerArm.rotation.z, 0, 0.1);
+                        leftLowerArm.rotation.y = THREE.MathUtils.lerp(leftLowerArm.rotation.y, 0, 0.1);
+                    }
+                }
+
+                // Update VRM components
+                currentVrm.update(deltaTime);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.onresize = () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        };
+
+        // --- INTERACTION LOGIC ---
+        const userInput = document.getElementById('userInput');
+        const statusText = document.getElementById('status-text');
+        const chatBubble = document.getElementById('chat-bubble');
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            statusText.innerText = "Status: Haruna Menjawab...";
+            userInput.value = "";
+            showBubble("...");
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ msg: text })
+                });
+                const data = await response.json();
+
+                if (data.error) throw new Error(data.error);
+
+                statusText.innerText = "Status: Berbicara";
+
+                // --- EMOTION PARSING ---
+                let rawText = data.text;
+                let cleanText = rawText;
+
+                // Reset expression targets
+                Object.keys(expressionTarget).forEach(key => expressionTarget[key] = 0);
+
+                if (rawText.includes("[HAPPY]")) {
+                    expressionTarget.happy = 1.0;
+                    cleanText = rawText.replace("[HAPPY]", "").trim();
+                } else if (rawText.includes("[ANGRY]")) {
+                    expressionTarget.angry = 1.0;
+                    cleanText = rawText.replace("[ANGRY]", "").trim();
+                } else if (rawText.includes("[SAD]")) {
+                    expressionTarget.sad = 1.0;
+                    cleanText = rawText.replace("[SAD]", "").trim();
+                } else if (rawText.includes("[SURPRISED]")) {
+                    expressionTarget.surprised = 1.0;
+                    cleanText = rawText.replace("[SURPRISED]", "").trim();
+                }
+
+                showBubble(cleanText);
+                playAudio(data.audio_url); // Pass the audio URL from backend
+            } catch (err) {
+                console.error(err);
+                statusText.innerText = "Status: Gagal Terkoneksi";
+            }
+        }
+
+        function showBubble(text) {
+            chatBubble.innerText = text;
+            chatBubble.classList.add('visible');
+            // Hide after 10 seconds or when next message starts
+        }
+
+        function playAudio(audioUrl) {
+            // Stop any ongoing speech
+            if (window.currentAudio) {
+                window.currentAudio.pause();
+                window.currentAudio.currentTime = 0;
+            }
+
+            const audio = new Audio(audioUrl);
+            window.currentAudio = audio;
+
+            // Optional: "Cute" effect - slightly faster and higher pitch
+            audio.playbackRate = 1.1;
+            // Most modern browsers support preservesPitch
+            if ('preservesPitch' in audio) {
+                audio.preservesPitch = false; // This will make it sound cuter/higher pitched
+            } else if ('mozPreservesPitch' in audio) {
+                audio.mozPreservesPitch = false;
+            } else if ('webkitPreservesPitch' in audio) {
+                audio.webkitPreservesPitch = false;
+            }
+
+            audio.onplay = () => {
+                statusText.innerText = "Status: Berbicara";
+
+                // Reset expressions to neutral shortly after speaking starts (0.5s delay)
+                setTimeout(() => {
+                    Object.keys(expressionTarget).forEach(key => expressionTarget[key] = 0);
+                }, 500);
+
+                const interval = setInterval(() => {
+                    if (audio.paused || audio.ended) {
+                        mouthOpenParam = 0;
+                        Object.keys(expressionTarget).forEach(key => expressionTarget[key] = 0);
+                        clearInterval(interval);
+                        statusText.innerText = "Status: Online";
+                    } else {
+                        // Lip sync based on audio activity (simulated here, could be improved with Web Audio API)
+                        mouthOpenParam = 0.3 + Math.random() * 0.5;
+
+                        // Removed sustained expression logic to allow reset
+                    }
+                }, 50);
+            };
+
+            audio.play().catch(err => {
+                console.error("Audio playback failed:", err);
+                statusText.innerText = "Status: Audio Error";
+            });
+        }
+
+        // No longer pre-loading browser voices since we use Piper
+        /*
+        window.speechSynthesis.getVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = window.speechSynthesis.getVoices;
+        }
+        */
+
+        // --- SPEECH RECOGNITION ---
+        const micBtn = document.getElementById('micBtn');
+        let recognition = null;
+
+        if (window.webkitSpeechRecognition) {
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'id-ID';
+
+            recognition.onstart = () => {
+                micBtn.classList.add('recording');
+                statusText.innerText = "Status: Mendengarkan...";
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                userInput.value = transcript;
+                sendMessage();
+            };
+
+            recognition.onerror = () => {
+                micBtn.classList.remove('recording');
+                statusText.innerText = "Status: Mic Error";
+            };
+
+            recognition.onend = () => {
+                micBtn.classList.remove('recording');
+            };
+        }
+
+        function toggleMic() {
+            if (!recognition) {
+                alert("Speech recognition tidak didukung di browser ini.");
+                return;
+            }
+            recognition.start();
+        }
+
+        // Expose functions to global scope for HTML onclick handlers
+        window.sendMessage = sendMessage;
+        window.toggleMic = toggleMic;
+
+        // --- MOUSE & INTERACTION EVENTS ---
+        const raycaster = new THREE.Raycaster();
+
+        window.addEventListener('mousemove', (event) => {
+            // Normalize mouse position (-1 to 1)
+            animState.mousePos.x = (event.clientX / window.innerWidth) * 2 - 1;
+            animState.mousePos.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Simple Raycasting for Hover Detection
+            if (currentVrm && camera) {
+                raycaster.setFromCamera(animState.mousePos, camera);
+
+                // Get meshes for intersection
+                // Note: VRM models are complex hierarchies. We can traverse or just check all scene meshes.
+                // For simplicity, we check if ray intersects closely with expected body position
+                // A Box helper or simplified logic is better for performance, but...
+
+                // Let's rely on basic bounding sphere check of the Scene if possible, 
+                // OR just use a distance check from center if the character is mainly static in center.
+                // Raycasting entire VRM meshes every frame is expensive? 
+
+                // OPTIMIZATION: Check only if mouse is relatively central
+                const distFromCenter = animState.mousePos.length();
+                if (distFromCenter < 0.4) { // Mouse near center of screen
+                    animState.isHovering = true;
+                } else {
+                    animState.isHovering = false;
+                }
+            }
+        });
+
+        // Handle Window Resize for Raycaster/Camera
+        window.addEventListener('resize', () => {
+            // ... existing resize logic handles renderer ...
+        });
+
+        // --- HOTKEYS ---
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement === userInput) return; // Don't trigger when typing
+
+            const key = e.key.toLowerCase();
+
+            // Expressions
+            if (key === '1') { resetExpressions(); expressionTarget.happy = 1.0; }
+            if (key === '2') { resetExpressions(); expressionTarget.angry = 1.0; }
+            if (key === '3') { resetExpressions(); expressionTarget.sad = 1.0; }
+            if (key === '4') { resetExpressions(); expressionTarget.surprised = 1.0; }
+            if (key === '0') { resetExpressions(); }
+
+            // Animations
+            if (key === 'n') animations.nod();
+            if (key === 'h') animations.shake();
+            if (key === 'w') animations.wave();
+            if (key === 'k') animations.hips();
+        });
+
+        function resetExpressions() {
+            for (let key in expressionTarget) expressionTarget[key] = 0;
+        }
+
+        // Allow Enter key to send message
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+
+</html>
